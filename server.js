@@ -29,9 +29,26 @@ const userQueryValidator = Match.Where(user => {
 
 const passwordValidator = { digest: String, algorithm: String };
 
-const invalidLogin = () => {
-  return new Meteor.Error(403, 'Invalid login credentials');
+const invalidLogin = ({user, methodInvocation, userQuery, method}) => {
+  let error = createError(403, 'Invalid login credentials');
+  reportLoginFailure({error, user, methodInvocation, userQuery, method})
+  return error;
 };
+
+const invalidCode = ({user, methodInvocation, userQuery, method})=>{
+  let error = createError(403, 'Invalid code');
+  reportLoginFailure({error, user, methodInvocation, userQuery, method})
+  return error;
+}
+
+const createError = (code, reason)=>{
+  return new Meteor.Error(code, reason);
+}
+
+const reportLoginFailure = ({error, user, methodInvocation, userQuery, method})=>{
+  Accounts._reportLoginFailure(methodInvocation, method, [{user: userQuery}], {error, userId: user && user._id, type: 'login'});
+  //console.log(method, [userQuery], {error, userId: user && user._id, type: 'login'});
+}
 
 const getFieldName = () => {
   return twoFactor.options.fieldName || 'twoFactorCode';
@@ -45,13 +62,14 @@ Meteor.methods({
     const fieldName = getFieldName();
 
     const user = Accounts._findUserByQuery(userQuery);
+    const errorParams = {user, methodInvocation: this, userQuery, method: 'twoFactor.getAuthenticationCode'};
     if (!user) {
-      throw invalidLogin();
+      throw invalidLogin(errorParams);
     }
 
     const checkPassword = Accounts._checkPassword(user, password);
     if (checkPassword.error) {
-      throw invalidLogin();
+      throw invalidLogin(errorParams);
     }
 
     const code =
@@ -79,17 +97,18 @@ Meteor.methods({
     const fieldName = getFieldName();
 
     const user = Accounts._findUserByQuery(options.user);
+    const errorParams = {user, methodInvocation: this, userQuery: options.user, method: 'twoFactor.verifyCodeAndLogin'};
     if (!user) {
-      throw invalidLogin();
+      throw invalidLogin(errorParams);
     }
 
     const checkPassword = Accounts._checkPassword(user, options.password);
     if (checkPassword.error) {
-      throw invalidLogin();
+      throw invalidLogin(errorParams);
     }
 
     if (options.code !== user[fieldName]) {
-      throw new Meteor.Error(403, 'Invalid code');
+      throw invalidCode(errorParams);
     }
 
     Meteor.users.update(user._id, {
@@ -110,13 +129,14 @@ Meteor.methods({
     const fieldName = getFieldName();
 
     const user = Accounts._findUserByQuery(userQuery);
+    const errorParams = {user, methodInvocation: this, userQuery, method: 'twoFactor.abort'};
     if (!user) {
-      throw invalidLogin();
+      throw invalidLogin(errorParams);
     }
 
     const checkPassword = Accounts._checkPassword(user, password);
     if (checkPassword.error) {
-      throw invalidLogin();
+      throw invalidLogin(errorParams);
     }
 
     Meteor.users.update(user._id, {
